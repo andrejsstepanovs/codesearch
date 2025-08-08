@@ -1,0 +1,7 @@
+bin/*
+vcs.xml
+.idea/
+codesearch.db
+.idea/*
+.aider.*
+db/*.db
