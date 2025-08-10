@@ -9,9 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type App struct {
-	// This struct can be expanded later with shared dependencies
-}
+type App struct{}
 
 func newBuildCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
@@ -101,7 +99,8 @@ func (a *App) handleSearch(cmd *cobra.Command, args []string) {
 func Execute() {
 	app := &App{}
 	rootCmd := newRootCmd(app)
-	if err := rootCmd.Execute(); err != nil {
+	err := rootCmd.Execute()
+	if err != nil {
 		// Cobra prints the error, so we just need to exit.
 		os.Exit(1)
 	}
