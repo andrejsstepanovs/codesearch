@@ -1,12 +1,22 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"time"
 
 	"github.com/andrejsstepanovs/codesearch/search"
 	"github.com/andrejsstepanovs/codesearch/sync"
+	"github.com/andrejsstepanovs/go-litellm/request"
 	"github.com/spf13/cobra"
+
+	// "github.com/swdunlop/ollama-client"
+	// "github.com/swdunlop/ollama-client/chat"
+	// "github.com/swdunlop/ollama-client/chat/protocol"
+	ollama "github.com/prathyushnallamothu/ollamago"
 )
 
 type App struct{}
@@ -39,6 +49,15 @@ func newSearchCmd(app *App) *cobra.Command {
 	return cmd
 }
 
+func newTestCmd(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "test",
+		Short: "Run tests in a project. First argument is project alias, rest are test query",
+		Run:   app.handleTest,
+	}
+	return cmd
+}
+
 func newRootCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "codesearch",
@@ -48,6 +67,7 @@ func newRootCmd(app *App) *cobra.Command {
 		newBuildCmd(app),
 		newSyncCmd(app),
 		newSearchCmd(app),
+		newTestCmd(app),
 	)
 	return cmd
 }
@@ -71,6 +91,81 @@ func (a *App) handleSync(cmd *cobra.Command, args []string) {
 	if err := sync.RunSync(cmd.Context(), projectAlias); err != nil {
 		fmt.Printf("Error during sync operation: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func (a *App) handleTest(cmd *cobra.Command, args []string) {
+	ctx := context.Background()
+
+	client := ollama.NewClient(
+		ollama.WithTimeout(time.Minute * 5),
+	)
+
+	model := "gemma3n:latest"
+	embeddingModel := "jazzcort/nomic-embed-code-Q6_K:latest"
+
+	req := ollama.GenerateRequest{
+		Model:  model,
+		Prompt: "What is the capital of France?",
+	}
+
+	// SIMPLE GENERATE
+	resp, err := client.Generate(ctx, req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(resp.Response) > 1 {
+		fmt.Println("OK - Generate")
+	}
+
+	// STRUCTURED OUTPUT
+	formatProperty := request.Property{
+		Type: request.TypeObject,
+		Properties: map[string]request.Property{
+			"name": {
+				Type: request.TypeString,
+			},
+			"capital": {
+				Type: request.TypeString,
+			},
+			"languages": {
+				Type: request.TypeArray,
+				Items: &request.Property{
+					Type: request.TypeString,
+				},
+			},
+		},
+		Required: []string{"name", "capital", "languages"},
+	}
+	jsonBytes, err := json.Marshal(formatProperty)
+	if err != nil {
+		log.Fatal(err)
+	}
+	reqStruct := ollama.ChatRequest{
+		Model:    model,
+		Messages: []ollama.Message{{Role: "user", Content: "Tell me about Canada."}},
+		Format:   jsonBytes,
+	}
+	respChat, err := client.Chat(ctx, reqStruct)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(respChat.Message.Content) > 0 {
+		fmt.Println("OK - Structured Chat")
+	}
+
+	// EMBEDDING
+	embedReq := ollama.EmbeddingsRequest{
+		Model:  embeddingModel,
+		Prompt: "Hi this is long long text that needs embedding to be done here yes exactly yup yup bla bla",
+	}
+	res, err := client.Embeddings(ctx, embedReq)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(res.Embedding) > 0 {
+		fmt.Println("OK - Embedding")
 	}
 }
 
