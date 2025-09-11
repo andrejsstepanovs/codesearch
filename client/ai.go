@@ -55,7 +55,7 @@ func Embeddings(ctx context.Context, clientName, model, inputText string) (model
 		POST(path).
 		Context().Set(ctx).
 		Header().Add("Accept", "application/json").
-		Retry().SetExponentialBackoff(time.Second*30, 4, 2.0).
+		//Retry().SetExponentialBackoff(time.Second*30, 4, 2.0).
 		Body().AsJSON(req).
 		Send()
 

@@ -33,7 +33,7 @@ func ParseConfig(args []string) (*Config, error) {
 		ProjectPath:  args[1],
 		ModelName:    "codesearch-embedding",
 		ClientName:   "litellm",
-		Extensions:   []string{"go", "js", "ts", "py", "java", "cpp", "c", "h", "hpp", "yaml", "yml"},
+		Extensions:   []string{"go", "js", "ts", "py", "php", "java", "cpp", "c", "h", "hpp", "yaml", "yml"},
 	}
 
 	if config.ProjectPath == "." {
@@ -55,6 +55,8 @@ func ParseConfig(args []string) (*Config, error) {
 	if len(args) >= 5 {
 		config.Extensions = strings.Split(args[4], ",")
 	}
+
+	log.Printf("Using configuration: %+v", config)
 
 	return config, nil
 }
@@ -78,19 +80,48 @@ func processProjectFiles(ctx context.Context, dbConn *sql.DB, config *Config) er
 
 		log.Printf("Processing file: %s", relativePath)
 		embed := fmt.Sprintf("%s\n%s", relativePath, string(content))
+
+		allRes := make([]models.EmbeddingResponse, 0)
+
 		res, err := client.Embeddings(ctx, config.ClientName, config.ModelName, embed)
 		if err != nil {
-			log.Printf("Error generating embeddings for file %s: %v", filePath, err)
-			continue
+			if strings.Contains(err.Error(), "exceeding max") && strings.Contains(err.Error(), "tokens.") {
+				log.Println("Splitting file in half due to size")
+
+				mid := len(content) / 2
+				part1 := fmt.Sprintf("%s\n%s", relativePath, string(content[:mid]))
+				part2 := fmt.Sprintf("%s\n%s", relativePath, string(content[mid:]))
+
+				res1, err1 := client.Embeddings(ctx, config.ClientName, config.ModelName, part1)
+				if err1 != nil {
+					log.Printf("Error generating embeddings for file part 1 %s: %v", filePath, err1)
+					continue
+				}
+				allRes = append(allRes, res1)
+
+				res2, err2 := client.Embeddings(ctx, config.ClientName, config.ModelName, part2)
+				if err2 != nil {
+					log.Printf("Error generating embeddings for file part 2 %s: %v", filePath, err2)
+					continue
+				}
+				allRes = append(allRes, res2)
+			} else {
+				log.Printf("Error generating embeddings for file %s: %v", filePath, err)
+				continue
+			}
+		} else {
+			allRes = append(allRes, res)
 		}
 
-		_, err = db.SaveFileEmbedding(dbConn, relativePath, res.GetEmbeddings())
-		if err != nil {
-			return fmt.Errorf("error saving embedding for file %s: %w", filePath, err)
-		}
+		for _, res := range allRes {
+			_, err = db.SaveFileEmbedding(dbConn, relativePath, res.GetEmbeddings())
+			if err != nil {
+				return fmt.Errorf("error saving embedding for file %s: %w", filePath, err)
+			}
 
-		percentage := float64(i+1) / float64(len(files)) * 100
-		fmt.Printf("Progress: %.2f%%\n", percentage)
+			percentage := float64(i+1) / float64(len(files)) * 100
+			fmt.Printf("Progress: %.2f%%\n", percentage)
+		}
 	}
 
 	return nil
